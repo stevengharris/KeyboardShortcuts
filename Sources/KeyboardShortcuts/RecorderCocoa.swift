@@ -265,6 +265,9 @@ extension KeyboardShortcuts {
 			}
 		}
 
+		/// Whether a click arriving now began recording and should end with the whole value selected.
+		private var isSelectingAllOnBecomingFirstResponder = false
+
 		private func updateStringValue() {
 			stringValue = currentShortcut.map { "\($0)" } ?? ""
 
@@ -394,6 +397,18 @@ extension KeyboardShortcuts {
 		}
 
 		@_documentation(visibility: private)
+		override public func mouseDown(with event: NSEvent) {
+			let startedByThisClick = isSelectingAllOnBecomingFirstResponder
+			isSelectingAllOnBecomingFirstResponder = false
+			super.mouseDown(with: event)
+
+			// AppKit makes the field first responder before the click reaches it, and the click then places the insertion point over the selection.
+			if startedByThisClick {
+				currentEditor()?.selectAll(nil)
+			}
+		}
+
+		@_documentation(visibility: private)
 		override public func becomeFirstResponder() -> Bool {
 			// Ensure we have a valid window before attempting to become first responder
 			// This prevents issues in SwiftUI contexts where the view hierarchy might not be fully established
@@ -410,6 +425,14 @@ extension KeyboardShortcuts {
 			placeholderString = "press_shortcut".localized
 			showsCancelButton = !stringValue.isEmpty
 			hideCaret()
+			currentEditor()?.selectAll(nil)
+
+			// A click that made the field first responder arrives in the same event dispatch, so this only lasts until the next run loop turn.
+			isSelectingAllOnBecomingFirstResponder = true
+			DispatchQueue.main.async { [weak self] in
+				self?.isSelectingAllOnBecomingFirstResponder = false
+			}
+
 			Self.activeRecorder = self
 			KeyboardShortcuts.isPaused = true // The position here matters.
 			NotificationCenter.default.post(name: .recorderActiveStatusDidChange, object: nil, userInfo: [NotificationUserInfoKey.isActive: true])
