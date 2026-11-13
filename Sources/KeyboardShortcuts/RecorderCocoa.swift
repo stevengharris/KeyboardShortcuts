@@ -268,6 +268,32 @@ extension KeyboardShortcuts {
 		/// Whether a click arriving now began recording and should end with the whole value selected.
 		private var isSelectingAllOnBecomingFirstResponder = false
 
+		/// Whether the field is showing the modifier keys currently held instead of the stored shortcut.
+		private var isPreviewingModifiers = false
+
+		/// The modifier symbols for the keys held while recording, or an empty string when none are.
+		static func modifierPreview(for modifiers: NSEvent.ModifierFlags) -> String {
+			modifiers.intersection([.control, .option, .shift, .command]).ks_symbolicRepresentation
+		}
+
+		/// Shows the modifier keys held while recording, so they are visible before the key that completes the shortcut.
+		private func updateModifierPreview(for modifiers: NSEvent.ModifierFlags) {
+			let preview = Self.modifierPreview(for: modifiers)
+
+			guard !preview.isEmpty else {
+				if isPreviewingModifiers {
+					isPreviewingModifiers = false
+					updateStringValue()
+				}
+
+				return
+			}
+
+			isPreviewingModifiers = true
+			stringValue = preview
+			showsCancelButton = false
+		}
+
 		private func updateStringValue() {
 			stringValue = currentShortcut.map { "\($0)" } ?? ""
 
@@ -299,6 +325,12 @@ extension KeyboardShortcuts {
 
 		private func endRecording() {
 			eventMonitor = nil
+
+			if isPreviewingModifiers {
+				isPreviewingModifiers = false
+				updateStringValue()
+			}
+
 			placeholderString = "record_shortcut".localized
 			showsCancelButton = !stringValue.isEmpty
 			restoreCaret()
@@ -437,9 +469,14 @@ extension KeyboardShortcuts {
 			KeyboardShortcuts.isPaused = true // The position here matters.
 			NotificationCenter.default.post(name: .recorderActiveStatusDidChange, object: nil, userInfo: [NotificationUserInfoKey.isActive: true])
 
-			eventMonitor = LocalEventMonitor(events: [.keyDown, .leftMouseUp, .rightMouseUp]) { [weak self] event in
+			eventMonitor = LocalEventMonitor(events: [.keyDown, .leftMouseUp, .rightMouseUp, .flagsChanged]) { [weak self] event in
 				guard let self else {
 					return nil
+				}
+
+				if event.type == .flagsChanged {
+					updateModifierPreview(for: event.modifierFlags)
+					return event
 				}
 
 				let clickPoint = convert(event.locationInWindow, from: nil)
@@ -514,6 +551,7 @@ extension KeyboardShortcuts {
 					return nil
 				}
 
+				isPreviewingModifiers = false
 				stringValue = "\(shortcut)"
 				showsCancelButton = true
 
